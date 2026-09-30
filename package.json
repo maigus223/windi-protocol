@@ -1,0 +1,36 @@
+{
+  "name": "windi-reference",
+  "version": "0.1.0",
+  "description": "Experimental reference implementation of the Open Agent Access Gateway specification (Windi)",
+  "type": "module",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "test": "tsx --test test/*.test.ts",
+    "demo": "tsx examples/simulate.ts"
+  },
+  "keywords": [
+    "ai-agents",
+    "web-bot-auth",
+    "access-control",
+    "audit-log",
+    "specification",
+    "typescript",
+    "nodejs",
+    "llm",
+    "bot-authentication",
+    "open-standard"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "author": "MAIGUS"
+}
