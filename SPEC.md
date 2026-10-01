@@ -56,7 +56,7 @@ Gateways SHOULD identify operators using **Web Bot Auth** (HTTP Message Signatur
 
 A request is **signed** only if the signature verifies and its `created`/`expires` parameters are valid. Gateways MUST reject replayed signatures within their validity window where feasible.
 
-Gateways SHOULD require that signatures cover `@authority`, `@method` and `@path`, so a captured signature cannot be replayed against another endpoint of the same site. Agents SHOULD include a fresh `nonce` parameter in every signature; without one, two legitimate requests made in the same second can produce identical signatures and be mistaken for a replay. Signatures do not cover request bodies unless a digest component is also signed (not yet defined in this version).
+Gateways SHOULD require that signatures cover `@authority`, `@method` and `@path`, so a captured signature cannot be replayed against another endpoint of the same site. Agents SHOULD include a fresh `nonce` parameter in every signature; without one, two legitimate requests made in the same second can produce identical signatures and be mistaken for a replay. To protect against request tampering, agents and gateways SHOULD bind request bodies by signing the `content-digest` component (RFC 9530 / RFC 9421, e.g. `sha-256`). When `content-digest` is covered by the signature, gateways MUST verify that the `Content-Digest` header matches the digest of the received request body; if the digest does not match, the gateway MUST reject the signature.
 
 > Web Bot Auth is currently an IETF Internet-Draft, not a finished standard. Windi follows it as it evolves.
 

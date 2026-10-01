@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 MAIGUS
 
-import { createHash, createPublicKey, verify, KeyObject } from "node:crypto";
+import { createHash, createPublicKey, timingSafeEqual, verify, KeyObject } from "node:crypto";
 import type { OperatorDirectory } from "./types.js";
 
 /**
@@ -12,7 +12,7 @@ import type { OperatorDirectory } from "./types.js";
  *  - only Ed25519;
  *  - public keys come from a LOCAL operator directory, not fetched from Signature-Agent
  *    (fetching remote key directories needs SSRF protections that are not implemented yet);
- *  - no Content-Digest binding, so request bodies are NOT covered by the signature.
+ *  - request bodies can be bound to signatures via the Content-Digest component (RFC 9530 / RFC 9421).
  */
 
 export interface SignatureResult {
@@ -30,6 +30,82 @@ export interface VerifyOptions {
   replayCache?: ReplayCache;
   /** Components that MUST be signed. Default: ["@authority"]. Add "@path" and "@method" to bind a signature to one endpoint. */
   requiredComponents?: string[];
+  /** If true, require that "content-digest" is covered by the signature and matches the body. */
+  requireContentDigest?: boolean;
+}
+
+/** Serializes a request body to a Buffer for Content-Digest computation. */
+export function serializeBody(body: unknown): Buffer {
+  if (body === undefined || body === null) return Buffer.alloc(0);
+  if (Buffer.isBuffer(body)) return body;
+  if (typeof body === "string") return Buffer.from(body, "utf8");
+  return Buffer.from(JSON.stringify(body), "utf8");
+}
+
+function safeCompareBase64(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
+/**
+ * Computes an RFC 9530 Content-Digest header value for a request body.
+ * Default algorithm is sha-256.
+ *
+ * Example: `sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:`
+ */
+export function computeContentDigest(
+  body: unknown,
+  algorithm: "sha-256" | "sha-512" = "sha-256",
+): string {
+  const bytes = serializeBody(body);
+  const hashAlg = algorithm === "sha-512" ? "sha512" : "sha256";
+  const b64 = createHash(hashAlg).update(bytes).digest("base64");
+  return `${algorithm}=:${b64}:`;
+}
+
+/**
+ * Parses an RFC 9530 Content-Digest header into an algorithm -> base64 digest map.
+ */
+export function parseContentDigest(header: string): Map<string, string> {
+  const digests = new Map<string, string>();
+  const re = /(?:^|\s*,\s*)([a-zA-Z0-9_-]+)=:?([A-Za-z0-9+/=]+):?/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(header)) !== null) {
+    if (match[1] && match[2]) {
+      digests.set(match[1].toLowerCase(), match[2]);
+    }
+  }
+  return digests;
+}
+
+/**
+ * Verifies that the Content-Digest header matches the digest of the request body.
+ * Supports sha-256 and sha-512 algorithms.
+ */
+export function verifyContentDigest(header: string, body: unknown): boolean {
+  const digests = parseContentDigest(header);
+  if (digests.size === 0) return false;
+
+  const bytes = serializeBody(body);
+  let checkedAtLeastOne = false;
+
+  if (digests.has("sha-256")) {
+    const expected = digests.get("sha-256")!;
+    const actual = createHash("sha256").update(bytes).digest("base64");
+    if (!safeCompareBase64(expected, actual)) return false;
+    checkedAtLeastOne = true;
+  }
+
+  if (digests.has("sha-512")) {
+    const expected = digests.get("sha-512")!;
+    const actual = createHash("sha512").update(bytes).digest("base64");
+    if (!safeCompareBase64(expected, actual)) return false;
+    checkedAtLeastOne = true;
+  }
+
+  return checkedAtLeastOne;
 }
 
 export class ReplayCache {
@@ -104,7 +180,7 @@ export function buildSignatureBase(
 }
 
 export function verifyWebBotAuth(
-  req: { authority: string; method: string; path: string; headers: Record<string, string> },
+  req: { authority: string; method: string; path: string; headers: Record<string, string>; body?: unknown },
   directory: OperatorDirectory,
   opts: VerifyOptions = {},
 ): SignatureResult {
@@ -126,6 +202,16 @@ export function verifyWebBotAuth(
   }
   for (const required of opts.requiredComponents ?? ["@authority"]) {
     if (!components.includes(required)) return { valid: false, reason: `component-not-signed:${required}` };
+  }
+  if (opts.requireContentDigest && !components.includes("content-digest")) {
+    return { valid: false, reason: "component-not-signed:content-digest" };
+  }
+  if (components.includes("content-digest")) {
+    const digestHeader = req.headers["content-digest"];
+    if (!digestHeader) return { valid: false, reason: "missing-content-digest" };
+    if (!verifyContentDigest(digestHeader, req.body)) {
+      return { valid: false, reason: "content-digest-mismatch" };
+    }
   }
 
   const now = opts.now ?? Math.floor(Date.now() / 1000);

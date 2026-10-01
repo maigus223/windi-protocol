@@ -47,5 +47,5 @@ export function buildDemo(now?: () => number) {
   const audit = new MemoryAudit();
   const gateway = new Gateway({ policy: demoPolicy, operators, lists, handlers: demoHandlers, audit, ipSalt: "demo-salt-change-me", requiredSignedComponents: ["@authority", "@method", "@path"], ...(now ? { now } : {}) });
   const keys: DemoKeys = { verifiedKey: v.privateKey, partnerKey: p.privateKey, strangerKey: s.privateKey };
-  return { gateway, audit, keys };
+  return { gateway, audit, keys, operators };
 }

@@ -3,8 +3,17 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { signRequest, validatePolicy, type GatewayRequest, type Policy } from "../src/index.js";
-import { buildDemo, demoPolicy } from "../examples/demo-site.js";
+import {
+  signRequest,
+  validatePolicy,
+  computeContentDigest,
+  verifyContentDigest,
+  verifyWebBotAuth,
+  Gateway,
+  type GatewayRequest,
+  type Policy,
+} from "../src/index.js";
+import { buildDemo, demoPolicy, demoHandlers } from "../examples/demo-site.js";
 
 const AUTHORITY = "site.test";
 let clock = 1_800_000_000_000;
@@ -166,3 +175,109 @@ test("public policy document exposes capabilities but no rate limits or handlers
   assert.ok(text.includes("request-callback"));
   assert.ok(!text.includes("rate_limit"));
 });
+
+// Content-Digest tests --------------------------------------------------------
+
+test("content-digest: valid signature with Content-Digest covering body allows request", () => {
+  const { gateway, audit, keys } = setup();
+  const body = { topic: "urgent-billing" };
+  const headers = signed(keys.partnerKey, "partner-key-1", "request-callback", { body });
+  assert.ok(headers["content-digest"]);
+  assert.ok(headers["signature-input"]!.includes('"content-digest"'));
+
+  const res = gateway.handle(req("request-callback", body, headers));
+  assert.equal(res.status, 200);
+  assert.equal(audit.entries.at(-1)!.tier, "partner");
+  assert.equal(audit.entries.at(-1)!.outcome, "allowed");
+});
+
+test("content-digest: tampered body with valid signature is rejected (content-digest mismatch)", () => {
+  const { gateway, audit, keys, operators } = setup();
+  const originalBody = { topic: "legitimate-topic" };
+  const headers = signed(keys.partnerKey, "partner-key-1", "request-callback", { body: originalBody });
+
+  const tamperedBody = { topic: "malicious-injected-topic" };
+  const tamperedReq = req("request-callback", tamperedBody, headers);
+
+  // Gateway drops caller to anonymous tier and refuses access
+  const res = gateway.handle(tamperedReq);
+  assert.equal(res.status, 403);
+  assert.equal(audit.entries.at(-1)!.tier, "anonymous");
+
+  // Direct verification result explicitly reports content-digest-mismatch
+  const verifyResult = verifyWebBotAuth(tamperedReq, operators, { now: Math.floor(now() / 1000) });
+  assert.equal(verifyResult.valid, false);
+  assert.equal(verifyResult.reason, "content-digest-mismatch");
+});
+
+test("content-digest: tampered body AND tampered Content-Digest header is rejected as bad signature", () => {
+  const { gateway, audit, keys, operators } = setup();
+  const originalBody = { topic: "legitimate-topic" };
+  const headers = signed(keys.partnerKey, "partner-key-1", "request-callback", { body: originalBody });
+
+  // Attacker tampers with body AND recomputes Content-Digest to match the tampered body
+  const tamperedBody = { topic: "malicious-injected-topic" };
+  const tamperedHeaders = {
+    ...headers,
+    "content-digest": computeContentDigest(tamperedBody),
+  };
+  const tamperedReq = req("request-callback", tamperedBody, tamperedHeaders);
+
+  const res = gateway.handle(tamperedReq);
+  assert.equal(res.status, 403);
+  assert.equal(audit.entries.at(-1)!.tier, "anonymous");
+
+  // Signature verification fails because content-digest component was signed with the private key
+  const verifyResult = verifyWebBotAuth(tamperedReq, operators, { now: Math.floor(now() / 1000) });
+  assert.equal(verifyResult.valid, false);
+  assert.equal(verifyResult.reason, "bad-signature");
+});
+
+test("content-digest: gateway requiring content-digest rejects signatures missing the component", () => {
+  const { keys, operators, audit } = setup();
+  const strictGateway = new Gateway({
+    policy: demoPolicy,
+    operators,
+    lists: { verified: ["verified-ai"], partner: ["partner-ai"] },
+    handlers: demoHandlers,
+    audit,
+    ipSalt: "test-salt",
+    requiredSignedComponents: ["@authority", "@method", "@path", "content-digest"],
+    now,
+  });
+
+  // Signed without body -> no content-digest component
+  const headersWithoutDigest = signed(keys.partnerKey, "partner-key-1", "request-callback", { signBody: false });
+  const res = strictGateway.handle(req("request-callback", { topic: "hello" }, headersWithoutDigest));
+  assert.equal(res.status, 403);
+
+  // Signed with body -> has content-digest component
+  const headersWithDigest = signed(keys.partnerKey, "partner-key-1", "request-callback", { body: { topic: "hello" } });
+  const resAllowed = strictGateway.handle(req("request-callback", { topic: "hello" }, headersWithDigest));
+  assert.equal(resAllowed.status, 200);
+});
+
+test("content-digest: unit digest computation matches RFC 9530 standard vector and supports sha-512", () => {
+  // Empty content standard RFC 9530 sha-256 test vector
+  const emptyDigest = computeContentDigest("");
+  assert.equal(emptyDigest, "sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:");
+  assert.ok(verifyContentDigest(emptyDigest, ""));
+  assert.ok(verifyContentDigest(emptyDigest, Buffer.alloc(0)));
+
+  // String payload
+  const strDigest = computeContentDigest("hello world");
+  assert.ok(verifyContentDigest(strDigest, "hello world"));
+  assert.ok(!verifyContentDigest(strDigest, "hello world modified"));
+
+  // Object payload
+  const obj = { a: 1, b: "test" };
+  const objDigest = computeContentDigest(obj);
+  assert.ok(verifyContentDigest(objDigest, obj));
+  assert.ok(!verifyContentDigest(objDigest, { a: 1, b: "different" }));
+
+  // SHA-512 algorithm
+  const sha512Digest = computeContentDigest("test-payload", "sha-512");
+  assert.ok(sha512Digest.startsWith("sha-512=:"));
+  assert.ok(verifyContentDigest(sha512Digest, "test-payload"));
+});
+

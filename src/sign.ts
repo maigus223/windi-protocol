@@ -2,7 +2,7 @@
 // Copyright (c) 2026 MAIGUS
 
 import { randomBytes, sign, KeyObject } from "node:crypto";
-import { buildSignatureBase } from "./signature.js";
+import { buildSignatureBase, computeContentDigest } from "./signature.js";
 
 export interface SignOptions {
   authority: string;
@@ -16,6 +16,12 @@ export interface SignOptions {
   ttlSeconds?: number;
   /** Also sign @method and @path so the signature cannot be replayed on another endpoint. Default: true. */
   bindRequest?: boolean;
+  /** Request body to compute Content-Digest for and bind to signature. */
+  body?: unknown;
+  /** Whether to sign Content-Digest. Defaults to true if body is provided. */
+  signBody?: boolean;
+  /** Precomputed or custom Content-Digest header value. */
+  contentDigest?: string;
 }
 
 /** Client-side helper used by tests and the demo to play the role of an AI agent. */
@@ -32,6 +38,13 @@ export function signRequest(o: SignOptions): Record<string, string> {
   if (o.subjectId) {
     headers["ai-subject-id"] = o.subjectId;
     components.push("ai-subject-id");
+  }
+  if (o.contentDigest) {
+    headers["content-digest"] = o.contentDigest;
+    components.push("content-digest");
+  } else if (o.signBody || (o.signBody !== false && o.body !== undefined)) {
+    headers["content-digest"] = computeContentDigest(o.body);
+    components.push("content-digest");
   }
   const inner = `(${components.map((c) => `"${c}"`).join(" ")})`;
   const nonce = randomBytes(12).toString("base64url");
