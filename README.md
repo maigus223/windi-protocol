@@ -35,6 +35,40 @@ npm run demo    # starts the demo site and lets 3 simulated AIs call it
 
 The demo prints each request's result and the resulting audit log.
 
+## What the demo shows
+ 
+`npm run demo` starts a fictional site and lets three simulated agents call it. Real output:
+ 
+```
+anonymous  -> public-articles  200  OK
+anonymous  -> article-full     403  Access level too low for this capability (your_tier=anonymous, available=["public-articles","site-search"])
+verified   -> article-full     200  OK
+verified   -> request-callback 403  Access level too low for this capability (your_tier=verified, available=[...])
+partner    -> request-callback 200  OK
+stranger   -> catalog-query    403  Access level too low for this capability (your_tier=anonymous, available=["public-articles","site-search"])
+ 
+Audit log:
+anonymous null         public-articles  news  allowed
+anonymous null         article-full     news  denied (tier-too-low)
+verified  verified-ai  article-full     news  allowed
+verified  verified-ai  request-callback support  denied (tier-too-low)
+partner   partner-ai   request-callback support  allowed
+anonymous stranger-ai  catalog-query    catalog  denied (tier-too-low)
+```
+ 
+Note how a denied agent is told what it *can* access, and every call, allowed or not, lands in the audit log.
+
+## Why not just robots.txt, Web Bot Auth or MCP?
+ 
+Windi is not meant to replace these. It sits at a different layer.
+ 
+- **robots.txt**: a voluntary, per-path allow/deny file. It cannot tell agents apart, has no notion of trust levels, says nothing about *why* something is refused, and leaves no audit trail.
+- **Web Bot Auth / HTTP Message Signatures**: these answer "who signed this request?". They do not say what a site should offer to that agent. Windi consumes that identity and turns it into a trust tier plus a policy.
+- **MCP**: defines how agents discover and call tools. Windi is the site-side access contract (tiers, structured refusals, audit log). A site could expose capabilities through MCP and gate them with Windi, but that mapping is not specified yet.
+- **ARD**: a discovery catalog. Aligning a Windi policy with an ARD catalog entry is an open question in the spec (section 11).
+ 
+In short: existing work covers identity and discovery; Windi proposes the missing middle, a declared, tiered, auditable contract with refusals that explain themselves.
+
 ## How to use it in your own site
 
 1. Describe your capabilities in a `Policy` (see `examples/demo-site.ts`).
