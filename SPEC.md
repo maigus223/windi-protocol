@@ -44,7 +44,7 @@ Windi does **not**:
 
 A site SHOULD publish its agent-facing resources through the Agentic Resource Discovery (ARD) catalog at `/.well-known/ai-catalog.json`, and MAY publish its Windi policy at `/.well-known/windi-policy.json`.
 
-> **Open question:** the exact mapping between an Windi policy and an ARD catalog entry is not yet defined. A future version will align with the current ARD specification.
+> **Open question:** the exact mapping between a Windi policy and an ARD catalog entry is not yet defined. A future version will align with the current ARD specification.
 
 The policy document MUST include: `version`, the list of `capabilities` (§6), the tier rules (§5) and a human-readable contact.
 
@@ -135,7 +135,7 @@ The refusal MUST NOT leak data the requester is not allowed to see.
 
 ## 8. Audit log
 
-Every request to an Windi-protected capability MUST produce a log entry with at least:
+Every request to a Windi-protected capability MUST produce a log entry with at least:
 
 | Field | Notes |
 |---|---|
