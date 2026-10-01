@@ -83,7 +83,7 @@ Read these before using it for anything real.
 - **Not security-reviewed.** Treat it as a teaching and testing tool, not production code.
 - Operator public keys come from a **local directory**. It does not fetch remote key directories from `Signature-Agent`, because that requires SSRF protections that are not implemented yet.
 - Only the first signature is checked; only Ed25519 is supported.
-- Request **bodies are not covered** by the signature (no `Content-Digest` yet).
+- Request bodies can be bound to the signature by signing the **`Content-Digest`** component (RFC 9530 / RFC 9421).
 - The optional subject identifier (`ai-subject-id` header) is a **proposal**: no standard carries it today.
 - Rate limiting and the replay cache are **in memory, single process** only.
 - The audit file sink does not delete old data: **retention is the site's responsibility**.
@@ -96,7 +96,7 @@ Open an issue to discuss, or a pull request to propose changes. Especially welco
 - security and protocol review;
 - alignment with the ARD catalog format and current Web Bot Auth drafts;
 - remote key directory support, with SSRF protection;
-- `Content-Digest` support and machine-readable test vectors;
+- machine-readable test vectors;
 - translations of this README.
 
 ## License
