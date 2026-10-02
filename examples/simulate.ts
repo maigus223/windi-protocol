@@ -6,12 +6,14 @@ import { createGatewayServer, signRequest } from "../src/index.js";
 import { buildDemo } from "./demo-site.js";
 
 /** Starts the demo site and lets three simulated AIs call it. Run with: npm run demo */
-const { gateway, audit, keys } = buildDemo();
+const allowedAuthorities: string[] = [];
+const { gateway, audit, keys } = buildDemo(undefined, allowedAuthorities);
 const server = createGatewayServer(gateway);
 
 await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
 const port = (server.address() as AddressInfo).port;
 const authority = `127.0.0.1:${port}`;
+allowedAuthorities.push(authority);
 
 async function call(who: string, capability: string, body: unknown, signing?: { key: typeof keys.verifiedKey; keyid: string }) {
   const headers: Record<string, string> = { "content-type": "application/json" };

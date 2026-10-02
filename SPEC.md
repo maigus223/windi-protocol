@@ -56,6 +56,8 @@ Gateways SHOULD identify operators using **Web Bot Auth** (HTTP Message Signatur
 
 A request is **signed** only if the signature verifies and its `created`/`expires` parameters are valid. Gateways MUST reject replayed signatures within their validity window where feasible.
 
+A gateway MUST know the host names it serves and MUST refuse (and log) any request whose authority is not one of them, before examining the signature. Without this check, a signature made for one site could be replayed against another site that trusts the same operator, simply by sending the first site's `Host` header.
+
 Gateways SHOULD require that signatures cover `@authority`, `@method` and `@path`, so a captured signature cannot be replayed against another endpoint of the same site. Agents SHOULD include a fresh `nonce` parameter in every signature; without one, two legitimate requests made in the same second can produce identical signatures and be mistaken for a replay. Signatures do not cover request bodies unless a digest component is also signed (not yet defined in this version).
 
 > Web Bot Auth is currently an IETF Internet-Draft, not a finished standard. Windi follows it as it evolves.
@@ -71,6 +73,7 @@ An operator MAY include an opaque **subject identifier** for the end user, cover
 - It MUST NOT contain personal data (name, email, phone, etc.).
 - It SHOULD be derived **per site** by the operator (for example with a keyed hash of the user's account ID and the site's domain), so that two sites cannot correlate the same person.
 - It is optional: gateways MUST work without it.
+- Rate limits MUST be applied per operator. A subject identifier MUST NOT grant additional quota, because the operator chooses it and could otherwise rotate identifiers to multiply its allowance. A site MAY add a stricter per-subject limit on top.
 - Its purpose is limited to rate limiting, abuse handling and audit. A site can ask the operator to act on a subject, but the subject ID alone does not reveal who the person is.
 
 > Privacy note: a stable pseudonymous identifier may still count as personal data under laws such as the GDPR. Sites SHOULD apply the retention limits in §8.
@@ -155,7 +158,7 @@ Sites MUST document their retention period. The default RECOMMENDED retention is
 ## 9. Security considerations
 
 - **Spoofing**: handled by never trusting unsigned claims (§4.2).
-- **Replay**: validate signature validity windows; track nonces where feasible.
+- **Replay**: validate signature validity windows; track nonces where feasible. Refuse requests addressed to a host the gateway does not serve (§4.1), to prevent cross-site replay.
 - **Prompt injection**: content returned to agents is **untrusted input** for the agent. Gateways MUST NOT include instructions to the agent in data responses, and SHOULD mark content origin clearly.
 - **Abuse via anonymous tier**: keep anonymous capabilities minimal and strictly rate-limited.
 - **Key rotation and revocation**: operators rotate keys; sites SHOULD honour revocation promptly.
@@ -182,6 +185,9 @@ Test cases (implemented as automated tests in the reference implementation; mach
 | 5 | Mutating capability requested by `verified` tier | `403` unless `min_tier` allows |
 | 6 | Input with an unknown field | `400`, nothing executed |
 | 7 | Rate limit exceeded | `429` with `retry_after` |
+| 8 | Input containing an inherited property name (`constructor`, `toString`, `__proto__`) | `400`, nothing executed |
+| 9 | Valid signature made for a different host | Refused (`421`), logged, tier `anonymous` |
+| 10 | Same operator rotating signed subject identifiers | Total allowed requests never exceed the operator's limit |
 
 ## 11. Open questions
 

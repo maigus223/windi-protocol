@@ -26,6 +26,12 @@ export interface GatewayConfig {
   audit: AuditSink;
   /** Salt for hashing client addresses in the audit log. Set a random secret in production. */
   ipSalt: string;
+  /**
+   * Host names (with port if not default) that this gateway serves, lower-case. A request whose
+   * authority is not in this list is refused (SPEC section 4.1), so a signature made for another
+   * site cannot be replayed here. The list is read on every request.
+   */
+  allowedAuthorities: string[];
   /** Components every signature must cover. Default ["@authority"]; ["@authority","@method","@path"] is recommended. */
   requiredSignedComponents?: string[];
   baseProblemUri?: string;
@@ -43,7 +49,7 @@ export class Gateway {
   constructor(private readonly cfg: GatewayConfig) {
     validatePolicy(cfg.policy);
     for (const c of cfg.policy.capabilities) {
-      if (!cfg.handlers[c.id]) throw new Error(`no handler registered for capability ${c.id}`);
+      if (!Object.hasOwn(cfg.handlers, c.id)) throw new Error(`no handler registered for capability ${c.id}`);
     }
   }
 
@@ -93,7 +99,12 @@ export class Gateway {
 
   handle(req: GatewayRequest): GatewayResponse {
     const requestId = randomUUID();
-    const id = this.resolveIdentity(req);
+    // SPEC section 4.1: only requests addressed to one of our own hosts are examined. Checked BEFORE the
+    // signature, so a refused request never touches the replay cache.
+    const authorityOk = this.cfg.allowedAuthorities.includes(req.authority.toLowerCase());
+    const id = authorityOk
+      ? this.resolveIdentity(req)
+      : { tier: "anonymous" as Tier, operatorId: null, subjectId: null };
     const clientHash = createHash("sha256")
       .update(`${this.cfg.ipSalt}|${req.remoteAddress ?? ""}`)
       .digest("hex")
@@ -119,6 +130,11 @@ export class Gateway {
         client_hash: clientHash,
       });
     };
+
+    if (!authorityOk) {
+      log("denied", null, 0, "wrong-authority");
+      return this.problem(421, "wrong-authority", "This gateway does not serve that host", {});
+    }
 
     // Public policy document.
     if (req.method === "GET" && req.path === "/.well-known/windi-policy.json") {
@@ -169,7 +185,9 @@ export class Gateway {
     // Rate limit, keyed per caller and capability.
     const limit = cap.rate_limit[id.tier];
     if (limit) {
-      const who = id.operatorId ? `op:${id.operatorId}${id.subjectId ? `:${id.subjectId}` : ""}` : `ip:${clientHash}`;
+      // Keyed per operator. The subject id must NOT be part of the key: the operator signs it, so it could
+      // mint unlimited subject ids and multiply its quota (SPEC section 4.3).
+      const who = id.operatorId ? `op:${id.operatorId}` : `ip:${clientHash}`;
       const wait = this.limiter.hit(`${who}|${cap.id}`, limit, this.nowMs());
       if (wait !== null) {
         log("rate_limited", cap, 0, "rate-limit");

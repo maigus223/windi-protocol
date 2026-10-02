@@ -37,12 +37,14 @@ export function validateInput(schema: InputSchema | undefined, input: unknown): 
   if (typeof input !== "object" || input === null || Array.isArray(input)) return "input must be an object";
   const obj = input as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
-    if (!(key in schema.properties)) return `unknown field: ${key.slice(0, 40)}`;
+    // Own-property check: `in` would also match inherited names such as "constructor" or "toString".
+    if (!Object.hasOwn(schema.properties, key)) return `unknown field: ${key.slice(0, 40)}`;
   }
   for (const req of schema.required ?? []) {
-    if (!(req in obj)) return `missing required field: ${req}`;
+    if (!Object.hasOwn(obj, req)) return `missing required field: ${req}`;
   }
   for (const [key, spec] of Object.entries(schema.properties)) {
+    if (!Object.hasOwn(obj, key)) continue;
     const v = obj[key];
     if (v === undefined) continue;
     if (typeof v !== spec.type) return `field ${key} must be a ${spec.type}`;

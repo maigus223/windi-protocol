@@ -166,3 +166,43 @@ test("public policy document exposes capabilities but no rate limits or handlers
   assert.ok(text.includes("request-callback"));
   assert.ok(!text.includes("rate_limit"));
 });
+
+// Regression tests for the review fixes -----------------------------------------
+
+test("8. inherited property names are not accepted as input fields", () => {
+  const { gateway, audit } = setup();
+  const body = JSON.parse('{"q":"hi","constructor":1,"toString":2,"__proto__":3}');
+  const res = gateway.handle(req("site-search", body));
+  assert.equal(res.status, 400);
+  assert.equal(audit.entries.at(-1)!.reason, "invalid-input");
+});
+
+test("9. a signature made for another host is refused, and does not burn the replay cache", () => {
+  const { gateway, audit, keys } = setup();
+  const other = signRequest({ authority: "site-a.test", path: "/windi/invoke/article-full", privateKey: keys.verifiedKey, keyid: "verified-key-1", created: Math.floor(now() / 1000) });
+  const res = gateway.handle({ method: "POST", path: "/windi/invoke/article-full", authority: "site-a.test", headers: other, body: {}, remoteAddress: "203.0.113.9" });
+  assert.equal(res.status, 421);
+  assert.equal(audit.entries.at(-1)!.reason, "wrong-authority");
+  assert.equal(audit.entries.at(-1)!.tier, "anonymous");
+  // The same signature, if it was really meant for this site, still works once.
+  const mine = signed(keys.verifiedKey, "verified-key-1", "article-full");
+  assert.equal(gateway.handle(req("article-full", {}, mine)).status, 200);
+});
+
+test("9b. host comparison is case-insensitive", () => {
+  const { gateway, keys } = setup();
+  const h = signed(keys.verifiedKey, "verified-key-1", "article-full");
+  const res = gateway.handle({ ...req("article-full", {}, h), authority: "SITE.test" });
+  assert.equal(res.status, 200);
+});
+
+test("10. rotating signed subject ids does not multiply an operator's quota", () => {
+  const { gateway, keys } = setup();
+  const max = demoPolicy.capabilities.find((c) => c.id === "article-full")!.rate_limit.verified!.max;
+  let allowed = 0;
+  for (let i = 0; i < max + 20; i++) {
+    const h = signed(keys.verifiedKey, "verified-key-1", "article-full", { subjectId: `user-${i}` });
+    if (gateway.handle(req("article-full", {}, h)).status === 200) allowed++;
+  }
+  assert.equal(allowed, max);
+});

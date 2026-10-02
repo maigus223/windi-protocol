@@ -32,7 +32,11 @@ export interface DemoKeys {
   strangerKey: KeyObject; // valid operator key, but NOT on any list
 }
 
-export function buildDemo(now?: () => number) {
+/**
+ * `allowedAuthorities` is the list of host names the demo gateway serves (read live by the gateway).
+ * The tests use "site.test"; the HTTP demo adds its own 127.0.0.1:<port> once the port is known.
+ */
+export function buildDemo(now?: () => number, allowedAuthorities: string[] = ["site.test"]) {
   const make = () => generateKeyPairSync("ed25519");
   const v = make(), p = make(), s = make();
   const jwk = (k: { publicKey: KeyObject }) => k.publicKey.export({ format: "jwk" }) as { kty: "OKP"; crv: "Ed25519"; x: string };
@@ -45,7 +49,7 @@ export function buildDemo(now?: () => number) {
   };
   const lists: TierLists = { verified: ["verified-ai"], partner: ["partner-ai"] };
   const audit = new MemoryAudit();
-  const gateway = new Gateway({ policy: demoPolicy, operators, lists, handlers: demoHandlers, audit, ipSalt: "demo-salt-change-me", requiredSignedComponents: ["@authority", "@method", "@path"], ...(now ? { now } : {}) });
+  const gateway = new Gateway({ policy: demoPolicy, operators, lists, handlers: demoHandlers, audit, ipSalt: "demo-salt-change-me", allowedAuthorities, requiredSignedComponents: ["@authority", "@method", "@path"], ...(now ? { now } : {}) });
   const keys: DemoKeys = { verifiedKey: v.privateKey, partnerKey: p.privateKey, strangerKey: s.privateKey };
   return { gateway, audit, keys };
 }

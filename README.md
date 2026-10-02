@@ -74,7 +74,8 @@ In short: existing work covers identity and discovery; Windi proposes the missin
 1. Describe your capabilities in a `Policy` (see `examples/demo-site.ts`).
 2. Register a handler for each capability (your real data goes here).
 3. Fill the operator key directory and the `verified` / `partner` lists.
-4. Create a `Gateway`, and plug `gateway.handle(request)` into your framework, or use `createGatewayServer` for plain `node:http`.
+4. Set `allowedAuthorities` to the host names your site serves (requests for any other host are refused).
+5. Create a `Gateway`, and plug `gateway.handle(request)` into your framework, or use `createGatewayServer` for plain `node:http`.
 
 ## Limitations of this reference implementation
 
@@ -86,6 +87,7 @@ Read these before using it for anything real.
 - Request **bodies are not covered** by the signature (no `Content-Digest` yet).
 - The optional subject identifier (`ai-subject-id` header) is a **proposal**: no standard carries it today.
 - Rate limiting and the replay cache are **in memory, single process** only.
+- Anonymous callers are rate-limited by hashed `remoteAddress`. Behind a reverse proxy that address is the proxy's, so all anonymous callers share one bucket. The adapter deliberately does not trust `X-Forwarded-For`; pass the real client address yourself if you use `gateway.handle` directly.
 - The audit file sink does not delete old data: **retention is the site's responsibility**.
 - The input validator supports only a small subset of JSON Schema.
 

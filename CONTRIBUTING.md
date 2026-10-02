@@ -5,7 +5,8 @@ Thank you for helping. This project is at an early stage, so discussion matters 
 ## How to contribute
 
 1. Open an issue to discuss a change before large work.
-2. Fork, make a focused change, run `npm test` and `npm run typecheck`, then open a pull request.
+2. Fork, make a focused change, run `npm test` and `npm run typecheck`, then open a pull request (a checklist template will appear).
+   The reference implementation has no runtime dependencies by design; please do not add any without discussing it in an issue first.
 3. For changes to the specification, explain the reasoning and any security impact.
 
 ## Licensing of contributions
